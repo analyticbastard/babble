@@ -383,9 +383,11 @@ func (h *Hashgraph) FromParentsLatest(event Event) error {
 		return fmt.Errorf("Self-parent has different creator")
 	}
 
-	_, otherParentError := h.Store.GetEvent(otherParent)
-	if otherParentError != nil {
-		return fmt.Errorf("Other-parent not known (%s)", otherParent)
+	if otherParent != "" {
+		_, otherParentError := h.Store.GetEvent(otherParent)
+		if otherParentError != nil {
+			return fmt.Errorf("Other-parent not known (%s)", otherParent)
+		}
 	}
 
 	lastKnown, err := h.Store.LastFrom(creator)
