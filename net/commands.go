@@ -17,13 +17,22 @@ package net
 
 import "github.com/babbleio/babble/hashgraph"
 
-type SyncRequest struct {
-	From  string
-	Known map[int]int
+type KnownRequest struct {
+	From string
 }
 
-type SyncResponse struct {
+type KnownResponse struct {
+	Known map[int]int //[id] => count
+	Busy  bool
+}
+
+type SyncRequest struct {
 	From   string
 	Head   string
 	Events []hashgraph.WireEvent
+}
+
+type SyncResponse struct {
+	// We may not succeed if we have a conflicting entry
+	Success bool
 }

@@ -63,6 +63,10 @@ type Node struct {
 	start        time.Time
 	syncRequests int
 	syncErrors   int
+
+	busy      bool
+	busyTimer *time.Timer
+	busyLock  sync.Mutex
 }
 
 func NewNode(conf *Config, key *ecdsa.PrivateKey, participants []net.Peer, trans net.Transport, proxy proxy.AppProxy) Node {
@@ -98,6 +102,7 @@ func NewNode(conf *Config, key *ecdsa.PrivateKey, participants []net.Peer, trans
 		commitCh:        commitCh,
 		shutdownCh:      make(chan struct{}),
 		transactionPool: [][]byte{},
+		busyTimer:       time.NewTimer(conf.TCPTimeout),
 	}
 	return node
 }
@@ -139,6 +144,8 @@ func (n *Node) Run(gossip bool) {
 			if err := n.Commit(events); err != nil {
 				n.logger.WithField("error", err).Error("Committing Event")
 			}
+		case <-n.busyTimer.C:
+			n.SetBusy(false)
 		case <-n.shutdownCh:
 			return
 		default:
@@ -148,115 +155,145 @@ func (n *Node) Run(gossip bool) {
 
 func (n *Node) processRPC(rpc net.RPC) {
 	switch cmd := rpc.Command.(type) {
+	case *net.KnownRequest:
+		n.logger.WithField("from", cmd.From).Debug("Processing Known")
+		n.processKnown(rpc, cmd)
 	case *net.SyncRequest:
-		n.logger.WithField("from", cmd.From).Debug("Processing SyncRequest")
-		n.processSyncRequest(rpc, cmd)
+		n.logger.WithField("from", cmd.From).Debug("Processing Sync")
+		n.processSync(rpc, cmd)
 	default:
 		n.logger.WithField("cmd", rpc.Command).Error("Unexpected RPC command")
 		rpc.Respond(nil, fmt.Errorf("unexpected command"))
 	}
 }
 
-func (n *Node) processSyncRequest(rpc net.RPC, cmd *net.SyncRequest) {
-	n.logger.WithFields(logrus.Fields{
-		"from":  cmd.From,
-		"known": cmd.Known,
-	}).Debug("SyncRequest")
+func (n *Node) processKnown(rpc net.RPC, cmd *net.KnownRequest) {
+	start := time.Now()
+
+	var known map[int]int
+	var busy bool
+	var err error
+
+	if !n.IsBusy() {
+		n.SetBusy(true)
+		n.coreLock.Lock()
+		known = n.core.Known()
+		n.coreLock.Unlock()
+	} else {
+		busy = true
+	}
+
+	elapsed := time.Since(start)
+	n.logger.WithField("duration", elapsed.Nanoseconds()).Debug("Processed Known()")
+
+	resp := &net.KnownResponse{
+		Known: known,
+		Busy:  busy,
+	}
+	rpc.Respond(resp, err)
+
+}
+
+func (n *Node) processSync(rpc net.RPC, cmd *net.SyncRequest) {
+	n.coreLock.Lock()
+	defer n.coreLock.Unlock()
+	defer n.SetBusy(false)
+
+	success := true
 
 	start := time.Now()
-	n.coreLock.Lock()
-	head, diff, err := n.core.Diff(cmd.Known)
-	n.coreLock.Unlock()
+	err := n.core.Sync(cmd.Head, cmd.Events, n.transactionPool)
 	elapsed := time.Since(start)
-	n.logger.WithField("duration", elapsed.Nanoseconds()).Debug("Diff()")
-
+	n.logger.WithField("duration", elapsed.Nanoseconds()).Debug("Processed Sync()")
 	if err != nil {
-		n.logger.WithField("error", err).Error("Calculating Diff")
-		return
+		n.logger.WithField("error", err).Error("Sync()")
+		success = false
+	} else {
+		n.transactionPool = [][]byte{}
+		start = time.Now()
+		err := n.core.RunConsensus()
+		elapsed = time.Since(start)
+		n.logger.WithField("duration", elapsed.Nanoseconds()).Debug("Processed RunConsensus()")
+		if err != nil {
+			n.logger.WithField("error", err).Error("RunConsensus()")
+			success = false
+		} else {
+			n.UpdatePeerSelector(cmd.From)
+		}
 	}
-
-	wireEvents, err := n.core.ToWire(diff)
-	if err != nil {
-		n.logger.WithField("error", err).Debug("Converting to WireEvent")
-		return
-	}
-
-	n.logger.WithField("events", len(diff)).Debug("Responding to Sync Request")
 	resp := &net.SyncResponse{
+		Success: success,
+	}
+	rpc.Respond(resp, err)
+	n.logStats()
+}
+
+func (n *Node) gossip(peerAddr string) error {
+	peer := n.peerSelector.Next()
+
+	known, busy, err := n.requestKnown(peer.NetAddr)
+	if err != nil {
+		n.logger.WithField("error", err).Error("Getting peer Known")
+		return err
+	} else if busy {
+		n.logger.WithField("target", peer.NetAddr).Debug("Busy")
+	} else {
+
+		n.coreLock.Lock()
+		head, diff, err := n.core.Diff(known)
+		n.coreLock.Unlock()
+
+		if err != nil {
+			n.logger.WithField("error", err).Error("Calculating Diff")
+			return err
+		}
+		n.syncRequests++
+		err = n.requestSync(peer.NetAddr, head, diff)
+		if err != nil {
+			n.syncErrors++
+			n.logger.WithField("error", err).Error("Triggering peer Sync")
+			return err
+		}
+		n.UpdatePeerSelector(peer.NetAddr)
+	}
+	return nil
+}
+
+func (n *Node) requestKnown(target string) (map[int]int, bool, error) {
+	args := net.KnownRequest{
+		From: n.localAddr,
+	}
+	var out net.KnownResponse
+	if err := n.trans.RequestKnown(target, &args, &out); err != nil {
+		return nil, false, err
+	}
+	n.logger.WithFields(logrus.Fields{
+		"target": target,
+		"known":  out.Known,
+		"busy":   out.Busy,
+	}).Debug("Known Response")
+	return out.Known, out.Busy, nil
+}
+
+func (n *Node) requestSync(target string, head string, events []hg.Event) error {
+	wireEvents, err := n.core.ToWire(events)
+	if err != nil {
+		n.logger.WithField("error", err).Error("Converting to WireEvents")
+	}
+
+	args := net.SyncRequest{
 		From:   n.localAddr,
 		Head:   head,
 		Events: wireEvents,
 	}
-	rpc.Respond(resp, err)
-}
-
-func (n *Node) gossip(peerAddr string) error {
-
-	n.coreLock.Lock()
-	known := n.core.Known()
-	n.coreLock.Unlock()
-
-	start := time.Now()
-	resp, err := n.requestSync(peerAddr, known)
-	elapsed := time.Since(start)
-	n.logger.WithField("duration", elapsed.Nanoseconds()).Debug("requestSync()")
-	if err != nil {
-		n.logger.WithField("error", err).Error("requestSync()")
-		return err
-	}
-
-	err = n.processSyncResponse(resp)
-	if err != nil {
-		n.logger.WithField("error", err).Error("processSyncResponse()")
-		return err
-	}
-
-	n.selectorLock.Lock()
-	n.peerSelector.UpdateLast(peerAddr)
-	n.selectorLock.Unlock()
-
-	n.logStats()
-
-	return nil
-
-}
-
-func (n *Node) requestSync(target string, known map[int]int) (net.SyncResponse, error) {
-	args := net.SyncRequest{
-		From:  n.localAddr,
-		Known: known,
-	}
-
 	var out net.SyncResponse
-	err := n.trans.Sync(target, &args, &out)
-
-	return out, err
-}
-
-func (n *Node) processSyncResponse(resp net.SyncResponse) error {
-	n.coreLock.Lock()
-	defer n.coreLock.Unlock()
-
-	n.logger.WithField("events", fmt.Sprintf("%#v", resp.Events)).Debug("SyncResponse")
-
-	start := time.Now()
-
-	err := n.core.Sync(resp.Head, resp.Events, n.transactionPool)
-	elapsed := time.Since(start)
-	n.logger.WithField("duration", elapsed.Nanoseconds()).Debug("Processed Sync()")
-	if err != nil {
+	if err := n.trans.Sync(target, &args, &out); err != nil {
 		return err
 	}
-
-	n.transactionPool = [][]byte{}
-	start = time.Now()
-	err = n.core.RunConsensus()
-	elapsed = time.Since(start)
-	n.logger.WithField("duration", elapsed.Nanoseconds()).Debug("Processed RunConsensus()")
-	if err != nil {
-		return err
-	}
-
+	n.logger.WithFields(logrus.Fields{
+		"target":  target,
+		"success": out.Success,
+	}).Debug("Sync Response")
 	return nil
 }
 
@@ -340,6 +377,27 @@ func (n *Node) SyncRate() float64 {
 		syncErrorRate = float64(n.syncErrors) / float64(n.syncRequests)
 	}
 	return 1 - syncErrorRate
+}
+
+func (n *Node) IsBusy() bool {
+	n.busyLock.Lock()
+	defer n.busyLock.Unlock()
+	return n.busy
+}
+
+func (n *Node) SetBusy(val bool) {
+	n.busyLock.Lock()
+	defer n.busyLock.Unlock()
+	n.busy = val
+	if val {
+		n.busyTimer.Reset(n.conf.TCPTimeout)
+	}
+}
+
+func (n *Node) UpdatePeerSelector(peer string) {
+	n.selectorLock.Lock()
+	defer n.selectorLock.Unlock()
+	n.peerSelector.UpdateLast(peer)
 }
 
 func randomTimeout(minVal time.Duration) <-chan time.Time {

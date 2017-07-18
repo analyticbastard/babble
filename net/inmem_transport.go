@@ -79,6 +79,19 @@ func (i *InmemTransport) LocalAddr() string {
 	return i.localAddr
 }
 
+// RequestKnown implements the Transport interface.
+func (i *InmemTransport) RequestKnown(target string, args *KnownRequest, resp *KnownResponse) error {
+	rpcResp, err := i.makeRPC(target, args, nil, i.timeout)
+	if err != nil {
+		return err
+	}
+
+	// Copy the result back
+	out := rpcResp.Response.(*KnownResponse)
+	*resp = *out
+	return nil
+}
+
 // Sync implements the Transport interface.
 func (i *InmemTransport) Sync(target string, args *SyncRequest, resp *SyncResponse) error {
 	rpcResp, err := i.makeRPC(target, args, nil, i.timeout)

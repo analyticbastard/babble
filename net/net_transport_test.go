@@ -32,7 +32,61 @@ func TestNetworkTransport_StartStop(t *testing.T) {
 	}
 	trans.Close()
 }
+func TestNetworkTransport_RequestKnown(t *testing.T) {
+	// Transport 1 is consumer
+	trans1, err := NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, common.NewTestLogger(t))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	defer trans1.Close()
+	rpcCh := trans1.Consumer()
 
+	// Make the RPC request
+	args := KnownRequest{
+		From: "alfred",
+	}
+	resp := KnownResponse{
+		Known: map[int]int{
+			0: 1,
+			1: 2,
+			2: 3,
+		},
+	}
+
+	// Listen for a request
+	go func() {
+		select {
+		case rpc := <-rpcCh:
+			// Verify the command
+			req := rpc.Command.(*KnownRequest)
+			if !reflect.DeepEqual(req, &args) {
+				t.Fatalf("command mismatch: %#v %#v", *req, args)
+			}
+
+			rpc.Respond(&resp, nil)
+
+		case <-time.After(200 * time.Millisecond):
+			t.Fatalf("timeout")
+		}
+	}()
+
+	// Transport 2 makes outbound request
+	trans2, err := NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, common.NewTestLogger(t))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	defer trans2.Close()
+
+	var out KnownResponse
+	if err := trans2.RequestKnown(trans1.LocalAddr(), &args, &out); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	// Verify the response
+	if !reflect.DeepEqual(resp, out) {
+		t.Fatalf("command mismatch: %#v %#v", resp, out)
+	}
+}
 func TestNetworkTransport_Sync(t *testing.T) {
 	// Transport 1 is consumer
 	trans1, err := NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, common.NewTestLogger(t))
@@ -44,14 +98,6 @@ func TestNetworkTransport_Sync(t *testing.T) {
 
 	// Make the RPC request
 	args := SyncRequest{
-		From: "A",
-		Known: map[int]int{
-			0: 1,
-			1: 2,
-			2: 3,
-		},
-	}
-	resp := SyncResponse{
 		From: "B",
 		Head: "head",
 		Events: []hashgraph.WireEvent{
@@ -65,6 +111,9 @@ func TestNetworkTransport_Sync(t *testing.T) {
 				},
 			},
 		},
+	}
+	resp := SyncResponse{
+		Success: true,
 	}
 
 	// Listen for a request
@@ -101,7 +150,6 @@ func TestNetworkTransport_Sync(t *testing.T) {
 		t.Fatalf("command mismatch: %#v %#v", resp, out)
 	}
 }
-
 func TestNetworkTransport_PooledConn(t *testing.T) {
 	// Transport 1 is consumer
 	trans1, err := NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, common.NewTestLogger(t))
@@ -113,14 +161,6 @@ func TestNetworkTransport_PooledConn(t *testing.T) {
 
 	// Make the RPC request
 	args := SyncRequest{
-		From: "A",
-		Known: map[int]int{
-			0: 1,
-			1: 2,
-			2: 3,
-		},
-	}
-	resp := SyncResponse{
 		From: "B",
 		Head: "head",
 		Events: []hashgraph.WireEvent{
@@ -134,6 +174,9 @@ func TestNetworkTransport_PooledConn(t *testing.T) {
 				},
 			},
 		},
+	}
+	resp := SyncResponse{
+		Success: true,
 	}
 
 	// Listen for a request

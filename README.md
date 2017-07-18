@@ -105,20 +105,20 @@ The content of "params" is the base64 encoding of the raw transaction bytes ("cl
 
 ### Transport
 
-Babble nodes communicate with other Babble nodes in a fully connected Peer To Peer  
-network. Nodes gossip by repeatedly choosing another node at random and asking that  
-node for all the new information it has about the Hashgraph. The gossip protocol  
-is extremely simple and serves the dual purpose of gossiping about transactions  
-and about the gossip itself (the Hashgraph). The Hashraph contains enough information  
+Babble nodes communicate whith other Babble nodes in a fully connected Peer To Peer  
+network. Nodes gossip by choosing another node at random and telling them everything  
+they know about the Hashgraph that the other doesn't. The gossip protocol is  
+extremely simple and serves the dual purpose of gossiping about transactions and  
+about the gossip itself (the Hashgraph). The Hashraph contains enough information  
 to compute a consensus ordering of transactions. 
 
-The communication mechanism is a custom RPC protocol over TCP connections. At the  
-moment, there is only one type of RPC command: **Sync**. When node **A** wants to  
-sync with node **B**, it sends a **SyncRequest** to **B** containing what it knows  
-about the Hashgraph. **B** computes what it knows that **A** doesn't know and  
-returns a **SyncResponse** with the corresponding events in topological order.  
-Upon receiving the **SyncResponse**, **A** updates its Hashgraph accordingly and  
-calculates the consensus order.
+The communication mechanism is a custom RPC protocol over TCP connections. There  
+are only two types of RPC commands, **Known** and **Sync**. For example, when  
+node **A** wants to sync with node **B**, it starts by sending a **Known** request  
+to **B**. **B** responds with what it knows about the Hashgraph. **A** computes what  
+it knows that **B** doesnt and sends the diff with a **Sync** request. Upon receiving  
+the **Sync** request, **B** updates its Hashgraph accordingly and calculates the  
+consensus order.
 
 The list of peers must be predefined and known to all peers. At the moment, it is  
 not possible to dynamically modify the list of peers while the network is running  

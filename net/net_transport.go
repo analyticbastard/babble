@@ -29,7 +29,8 @@ import (
 )
 
 const (
-	rpcSync uint8 = iota
+	rpcKnown uint8 = iota
+	rpcSync
 
 	// DefaultTimeoutScale is the default TimeoutScale in a NetworkTransport.
 	DefaultTimeoutScale = 256 * 1024 // 256KB
@@ -218,6 +219,11 @@ func (n *NetworkTransport) returnConn(conn *netConn) {
 	}
 }
 
+// RequestKnown implements the Transport interface.
+func (n *NetworkTransport) RequestKnown(target string, args *KnownRequest, resp *KnownResponse) error {
+	return n.genericRPC(target, rpcKnown, args, resp)
+}
+
 // Sync implements the Transport interface.
 func (n *NetworkTransport) Sync(target string, args *SyncRequest, resp *SyncResponse) error {
 	return n.genericRPC(target, rpcSync, args, resp)
@@ -309,13 +315,18 @@ func (n *NetworkTransport) handleCommand(r *bufio.Reader, dec *gob.Decoder, enc 
 
 	// Decode the command
 	switch rpcType {
+	case rpcKnown:
+		var req KnownRequest
+		if err := dec.Decode(&req); err != nil {
+			return err
+		}
+		rpc.Command = &req
 	case rpcSync:
 		var req SyncRequest
 		if err := dec.Decode(&req); err != nil {
 			return err
 		}
 		rpc.Command = &req
-
 	default:
 		return fmt.Errorf("unknown rpc type %d", rpcType)
 	}
