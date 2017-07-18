@@ -142,3 +142,14 @@ func TestWireEvent(t *testing.T) {
 		t.Fatalf("WireEvent should be %#v, not %#v", expectedWireEvent, wireEvent)
 	}
 }
+
+func TestIsEmpty(t *testing.T) {
+	event := NewEvent(nil, []string{"p1", "p2"}, []byte("creator"), 1)
+	if !event.IsEmpty() {
+		t.Fatalf("IsEmpty() should return true for nil Body.Transactions")
+	}
+	event.Body.Transactions = [][]byte{}
+	if !event.IsEmpty() {
+		t.Fatalf("IsEmpty() should return true for empty Body.Transactions")
+	}
+}

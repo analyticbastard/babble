@@ -127,6 +127,11 @@ func (e *Event) Index() int {
 	return e.Body.Index
 }
 
+func (e *Event) IsEmpty() bool {
+	return e.Body.Transactions == nil ||
+		len(e.Body.Transactions) == 0
+}
+
 //ecdsa sig
 func (e *Event) Sign(privKey *ecdsa.PrivateKey) error {
 	signBytes, err := e.Body.Hash()

@@ -329,7 +329,7 @@ func initRoundHashgraph(t *testing.T) (Hashgraph, map[string]string) {
 	for i := 0; i < n; i++ {
 		key, _ := crypto.GenerateECDSAKey()
 		node := NewNode(key, i)
-		event := NewEvent([][]byte{}, []string{"", ""}, node.Pub, 0)
+		event := NewEvent([][]byte{[]byte("abc")}, []string{"", ""}, node.Pub, 0)
 		node.signAndAddEvent(event, fmt.Sprintf("e%d", i), index, orderedEvents)
 		nodes = append(nodes, node)
 	}
@@ -511,6 +511,11 @@ func TestInsertEvent(t *testing.T) {
 	}
 	if !reflect.DeepEqual(f1.lastAncestors, expectedLastAncestors) {
 		t.Fatal("f1 lastAncestors not good")
+	}
+
+	//Pending non-empty Events
+	if pnee := h.PendingNonEmptyEvents; pnee != 3 {
+		t.Fatalf("PendingNonEmptyEvents should return 3, not %d", pnee)
 	}
 
 }
@@ -840,7 +845,7 @@ func initConsensusHashgraph(logger *logrus.Logger) (Hashgraph, map[string]string
 	for i := 0; i < n; i++ {
 		key, _ := crypto.GenerateECDSAKey()
 		node := NewNode(key, i)
-		event := NewEvent([][]byte{}, []string{"", ""}, node.Pub, 0)
+		event := NewEvent([][]byte{[]byte("abc")}, []string{"", ""}, node.Pub, 0)
 		node.signAndAddEvent(event, fmt.Sprintf("e%d", i), index, orderedEvents)
 		nodes = append(nodes, node)
 	}
@@ -1029,6 +1034,10 @@ func TestFindOrder(t *testing.T) {
 
 	if l := len(h.ConsensusEvents()); l != 6 {
 		t.Fatalf("length of consensus should be 6 not %d", l)
+	}
+
+	if pnee := h.PendingNonEmptyEvents; pnee != 0 {
+		t.Fatalf("PendingNonEmptyEvents should be 0, not %d", pnee)
 	}
 
 	//events which have the same consensus timestamp are ordered by whitened signature
