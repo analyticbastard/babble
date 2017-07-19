@@ -77,7 +77,7 @@ func (c *Core) PubKey() []byte {
 }
 
 func (c *Core) Init() error {
-	initialEvent := hg.NewEvent([][]byte(nil),
+	initialEvent := hg.NewEvent([][]byte{},
 		[]string{"", ""},
 		c.PubKey(),
 		c.Seq)
@@ -132,7 +132,6 @@ func (c *Core) Diff(known map[int]int) (head string, events []hg.Event, err erro
 }
 
 func (c *Core) Sync(otherHead string, unknown []hg.WireEvent, payload [][]byte) error {
-
 	//add unknown events
 	for _, we := range unknown {
 		ev, err := c.hg.ReadWireInfo(we)
@@ -147,6 +146,19 @@ func (c *Core) Sync(otherHead string, unknown []hg.WireEvent, payload [][]byte) 
 	//create new event with self head and other head
 	newHead := hg.NewEvent(payload,
 		[]string{c.Head, otherHead},
+		c.PubKey(), c.Seq)
+
+	if err := c.SignAndInsertSelfEvent(newHead); err != nil {
+		return fmt.Errorf("Error inserting new head: %s", err)
+	}
+
+	return nil
+}
+
+func (c *Core) AddSelfEvent(payload [][]byte) error {
+	//create new event with self head and other head
+	newHead := hg.NewEvent(payload,
+		[]string{c.Head, ""},
 		c.PubKey(), c.Seq)
 
 	if err := c.SignAndInsertSelfEvent(newHead); err != nil {
@@ -229,6 +241,10 @@ func (c *Core) GetConsensusEventsCount() int {
 
 func (c *Core) GetUndeterminedEvents() []string {
 	return c.hg.UndeterminedEvents
+}
+
+func (c *Core) GetPendingLoadedEvents() int {
+	return c.hg.PendingLoadedEvents
 }
 
 func (c *Core) GetConsensusTransactions() ([][]byte, error) {

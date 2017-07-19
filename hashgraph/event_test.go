@@ -143,13 +143,28 @@ func TestWireEvent(t *testing.T) {
 	}
 }
 
-func TestIsEmpty(t *testing.T) {
+func TestIsLoaded(t *testing.T) {
+	//nil payload
 	event := NewEvent(nil, []string{"p1", "p2"}, []byte("creator"), 1)
-	if !event.IsEmpty() {
-		t.Fatalf("IsEmpty() should return true for nil Body.Transactions")
+	if event.IsLoaded() {
+		t.Fatalf("IsLoaded() should return false for nil Body.Transactions")
 	}
+
+	//empty payload
 	event.Body.Transactions = [][]byte{}
-	if !event.IsEmpty() {
-		t.Fatalf("IsEmpty() should return true for empty Body.Transactions")
+	if event.IsLoaded() {
+		t.Fatalf("IsLoaded() should return false for empty Body.Transactions")
+	}
+
+	//initial event
+	event.Body.Index = 0
+	if !event.IsLoaded() {
+		t.Fatalf("IsLoaded() should return true for initial event")
+	}
+
+	//non-empty payload
+	event.Body.Transactions = [][]byte{[]byte("abc")}
+	if !event.IsLoaded() {
+		t.Fatalf("IsLoaded() should return true for non-empty payload")
 	}
 }

@@ -35,7 +35,7 @@ type Hashgraph struct {
 	LastConsensusRound      *int           //index of last round where the fame of all witnesses has been decided
 	LastCommitedRoundEvents int            //number of events in round before LastConsensusRound
 	ConsensusTransactions   int            //number of consensus transactions
-	PendingNonEmptyEvents   int            //number of non-empty events that are not yet committed
+	PendingLoadedEvents     int            //number of loaded events that are not yet committed
 	commitCh                chan []Event   //channel for committing events
 	topologicalIndex        int            //counter used to order events in topological order
 
@@ -360,8 +360,8 @@ func (h *Hashgraph) InsertEvent(event Event) error {
 
 	h.UndeterminedEvents = append(h.UndeterminedEvents, event.Hex())
 
-	if !event.IsEmpty() {
-		h.PendingNonEmptyEvents++
+	if event.IsLoaded() {
+		h.PendingLoadedEvents++
 	}
 
 	return nil
@@ -757,8 +757,8 @@ func (h *Hashgraph) FindOrder() error {
 			return err
 		}
 		h.ConsensusTransactions += len(e.Transactions())
-		if !e.IsEmpty() {
-			h.PendingNonEmptyEvents--
+		if e.IsLoaded() {
+			h.PendingLoadedEvents--
 		}
 	}
 

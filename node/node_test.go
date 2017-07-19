@@ -184,6 +184,7 @@ func TestAddTransaction(t *testing.T) {
 	}
 
 	args := net.SyncRequest{
+		From:   node1.localAddr,
 		Head:   head,
 		Events: wireEvents,
 	}

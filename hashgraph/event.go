@@ -127,9 +127,14 @@ func (e *Event) Index() int {
 	return e.Body.Index
 }
 
-func (e *Event) IsEmpty() bool {
-	return e.Body.Transactions == nil ||
-		len(e.Body.Transactions) == 0
+//True if Event contains a payload or is the initial Event of its creator
+func (e *Event) IsLoaded() bool {
+	if e.Body.Index == 0 {
+		return true
+	}
+
+	return e.Body.Transactions != nil &&
+		len(e.Body.Transactions) > 0
 }
 
 //ecdsa sig
