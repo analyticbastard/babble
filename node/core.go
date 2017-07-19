@@ -143,13 +143,17 @@ func (c *Core) Sync(otherHead string, unknown []hg.WireEvent, payload [][]byte) 
 		}
 	}
 
-	//create new event with self head and other head
-	newHead := hg.NewEvent(payload,
-		[]string{c.Head, otherHead},
-		c.PubKey(), c.Seq)
+	//Create a new Event only if there is new information to record:
+	//Events or txs
+	if len(unknown) > 0 || len(payload) > 0 {
+		//create new event with self head and other head
+		newHead := hg.NewEvent(payload,
+			[]string{c.Head, otherHead},
+			c.PubKey(), c.Seq)
 
-	if err := c.SignAndInsertSelfEvent(newHead); err != nil {
-		return fmt.Errorf("Error inserting new head: %s", err)
+		if err := c.SignAndInsertSelfEvent(newHead); err != nil {
+			return fmt.Errorf("Error inserting new head: %s", err)
+		}
 	}
 
 	return nil

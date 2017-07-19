@@ -132,7 +132,7 @@ func (n *Node) Run(gossip bool) {
 		case <-heartbeatTimer:
 			if gossip {
 				proceed, err := n.preGossip()
-				if proceed && err != nil {
+				if proceed && err == nil {
 					n.logger.Debug("Time to gossip!")
 					peer := n.peerSelector.Next()
 					go n.gossip(peer.NetAddr)
@@ -232,6 +232,9 @@ func (n *Node) processSync(rpc net.RPC, cmd *net.SyncRequest) {
 }
 
 func (n *Node) preGossip() (bool, error) {
+	n.coreLock.Lock()
+	defer n.coreLock.Unlock()
+
 	pendingLoadedEvents := n.core.GetPendingLoadedEvents()
 	pendingTransactions := len(n.transactionPool)
 	if pendingLoadedEvents == 0 &&
@@ -248,8 +251,8 @@ func (n *Node) preGossip() (bool, error) {
 	}
 
 	n.logger.WithFields(logrus.Fields{
-		"pending loaded events": pendingLoadedEvents,
-		"pending transactions":  pendingTransactions,
+		"pending_loaded_events": pendingLoadedEvents,
+		"pending_transactions":  pendingTransactions,
 	}).Debug("Gossip Condition")
 
 	return true, nil
